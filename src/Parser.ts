@@ -74,11 +74,9 @@ export default class Parser {
   shouldKeepAlive: boolean;
   keepAlive:string
   contentLength:string;
-  bodyBuffs: Buffer[] = [];
+  bodyBuffs: Buffer[] = []
 
-  onComplete:(statusCode:number, headers?:{[key:string]:string}, body?:Buffer)=>void
-
-  constructor(onComplete:(statusCode:number, headers?:{[key:string]:string}, body?:Buffer)=>void) {
+  constructor() {
     this.llhttp = llhttpInstance.exports;
     this.ptr = this.llhttp.llhttp_alloc(constants.TYPE.RESPONSE)
     this.statusCode = null
@@ -87,7 +85,6 @@ export default class Parser {
     this.shouldKeepAlive = false
     this.keepAlive = ""
     this.contentLength = ""
-    this.onComplete = onComplete
   }
 
   execute(data:Buffer) {
@@ -198,19 +195,8 @@ export default class Parser {
   }
 
   onMessageComplete() {
-    const headers = {}
-    const n = this.headers.length;
-    for(let i=0; i<n; i+=2){
-      const key = this.headers[i].toString();
-      const value = this.headers[i+1].toString();
-      if(!headers[key]){
-        headers[key] = value;
-      }else{
-        const oldValue = headers[key];
-        headers[key] = [].concat(oldValue, value);
-      }
-    }
-    this.onComplete(this.statusCode, headers, this.bodyBuffs.length ? Buffer.concat(this.bodyBuffs) : undefined);
+    console.log("==============onMessageComplete===============")
+    writeFileSync(`${Date.now()}.html`, Buffer.concat(this.bodyBuffs).toString());
     return 0;
   }
 }

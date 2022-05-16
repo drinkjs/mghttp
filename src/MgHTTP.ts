@@ -6,6 +6,7 @@ import { URL } from "url";
 import { Cookie, CookieJar } from "tough-cookie";
 import HTTPParser from "./HTTPParser";
 import { IncomingHttpHeaders } from "http";
+import { writeFileSync } from "fs";
 
 export type ProxyOpts = {
   host: string;
@@ -35,10 +36,10 @@ export type HttpMethod =
 export type RequestOpts = {
   method?: HttpMethod;
   headers?:
-    | IncomingHttpHeaders
-    | {
-        [key: string]: any;
-      };
+  | IncomingHttpHeaders
+  | {
+    [key: string]: any;
+  };
   searchParams?: {
     [key: string]: any;
   };
@@ -56,10 +57,10 @@ export type HttpResponse<T> = {
   data?: T;
   url: string;
   headers:
-    | IncomingHttpHeaders
-    | {
-        [key: string]: any;
-      };
+  | IncomingHttpHeaders
+  | {
+    [key: string]: any;
+  };
 };
 
 export enum HttpError {
@@ -72,6 +73,8 @@ export enum HttpError {
 
 const sessionCache = new Map();
 const maxCachedSessions = 1000;
+const proxyConnects: Map<string, Socket> = new Map;
+const LAST_CHUNK = Buffer.from('0\r\n\r\n');
 
 export default class MgHTTP {
   private host?: string;
@@ -81,8 +84,6 @@ export default class MgHTTP {
   private proxy?: ProxyOpts;
 
   private proxyAuth?: string;
-
-  private proxyConnects: Socket[] = [];
 
   private _cookieJar?: CookieJar;
 
@@ -117,14 +118,66 @@ export default class MgHTTP {
     }
   }
 
-  handlerSocketClose(socket: Socket) {
+  handlerSocketClose(socket: Socket, servername: string) {
     socket.removeAllListeners();
     if (!socket.destroyed) {
       socket.destroy();
     }
-    this.proxyConnects = this.proxyConnects.filter((s) => s !== socket);
+    proxyConnects.delete(servername);
   }
 
+  /**
+   * 创建tls连接
+   * @param opts 
+   * @param callback 
+   */
+  async createTLS(opts: { socket?: Socket, servername: string, serverport: number }) {
+    const { socket, servername, serverport } = opts;
+    const sessionKey = servername;
+    const session = sessionCache.get(sessionKey) || null;
+
+    return new Promise<tls.TLSSocket>((resolve, reject) => {
+      // 建立tls连接
+      const tlsConn = tls.connect(
+        {
+          host: servername,
+          port: serverport,
+          session,
+          servername,
+          socket,
+        },
+        () => {
+          console.log(`${servername} tls ok`);
+          // tlsConn.removeAllListeners();
+          resolve(tlsConn)
+        }
+      );
+      tlsConn
+        .setNoDelay(true)
+        .on("session", function (session) {
+          if (sessionCache.size >= maxCachedSessions) {
+            // remove the oldest session
+            const { value: oldestKey } = sessionCache.keys().next();
+            sessionCache.delete(oldestKey);
+          }
+          sessionCache.set(sessionKey, session);
+        })
+        .on("error", (err: any) => {
+          if (sessionKey && err.code !== "UND_ERR_INFO") {
+            // TODO (fix): Only delete for session related errors.
+            sessionCache.delete(sessionKey);
+          }
+          // this.handlerSocketClose(tlsConn, servername);
+          reject(err)
+        });
+    })
+  }
+
+  /**
+   * 建立代理连接
+   * @param opts 
+   * @returns 
+   */
   async createProxy(opts: {
     proxy: ProxyOpts;
     servername: string;
@@ -134,6 +187,26 @@ export default class MgHTTP {
     const { proxy, servername, serverport, isHttps } = opts;
 
     return new Promise((resolve, reject) => {
+
+      const freeConnect = proxyConnects.get(servername);
+      if (freeConnect) {
+        proxyConnects.delete(servername)
+        if (isHttps) {
+          this.createTLS({
+            servername,
+            serverport,
+            socket: freeConnect
+          }).then(tlsSocket => {
+            resolve(tlsSocket)
+          }).catch(err => {
+            reject({code: HttpError.TLS_ERROR, message: err.message})
+          })
+        } else {
+          resolve(freeConnect)
+        }
+        return;
+      }
+
       // 连接代理
       const proxyReq = http.request({
         method: "CONNECT",
@@ -143,7 +216,7 @@ export default class MgHTTP {
         path: `${servername}:${serverport}`,
         setHost: false,
         headers: {
-          connection: "keep-alive",
+          // connection: "keep-alive",
           host: `${servername}:${serverport}`,
           "proxy-authorization": this.proxyAuth
             ? `Basic ${this.proxyAuth}`
@@ -154,11 +227,10 @@ export default class MgHTTP {
       proxyReq.once("connect", (response, socket) => {
         if (response.statusCode === 200) {
           console.log("连接代理成功");
-          this.proxyConnects.push(socket);
 
           socket.setKeepAlive(true).once("close", () => {
             console.log("socket close");
-            this.handlerSocketClose(socket);
+            this.handlerSocketClose(socket, servername);
           });
 
           if (!isHttps) {
@@ -167,42 +239,16 @@ export default class MgHTTP {
             return;
           }
 
-          const sessionKey = servername;
-          const session = sessionCache.get(sessionKey) || null;
+          this.createTLS({
+            socket,
+            servername,
+            serverport
+          }).then(tlsSocket => {
+            resolve(tlsSocket)
+          }).catch(err => {
+            reject({code: HttpError.TLS_ERROR, message: err.message})
+          })
 
-          // 建立tls连接
-          const tlsConn = tls.connect(
-            {
-              host: servername,
-              port: serverport,
-              session,
-              servername,
-              socket,
-            },
-            () => {
-              console.log(`${servername} tls ok`);
-              // tlsConn.removeAllListeners();
-              resolve(tlsConn);
-            }
-          );
-          tlsConn
-            .setNoDelay(true)
-            .on("session", function (session) {
-              if (sessionCache.size >= maxCachedSessions) {
-                // remove the oldest session
-                const { value: oldestKey } = sessionCache.keys().next();
-                sessionCache.delete(oldestKey);
-              }
-              sessionCache.set(sessionKey, session);
-            })
-            .on("error", (err: any) => {
-              if (sessionKey && err.code !== "UND_ERR_INFO") {
-                // TODO (fix): Only delete for session related errors.
-                sessionCache.delete(sessionKey);
-              }
-              this.handlerSocketClose(tlsConn)
-              reject({ code: HttpError.TLS_ERROR, message: err.message });
-            });
         } else {
           proxyReq.removeAllListeners();
           proxyReq.destroy();
@@ -291,7 +337,7 @@ export default class MgHTTP {
         host,
         path,
         headers,
-        servername:host,
+        servername: host,
       },
       (res) => {
         const datas = [];
@@ -382,15 +428,29 @@ export default class MgHTTP {
           reqMessage += body;
         }
         // 解释结果
-        const httpParse = new HTTPParser(HTTPParser.RESPONSE);
+        const httpParse = new HTTPParser((statusCode:number, headers:any, resBody?:Buffer)=>{
+          console.log("==============onMessageComplete===============", headers)
+          if(resBody)
+            writeFileSync(`${Date.now()}.html`, resBody.toString());
+        });
+
         tlsSocket.on("data", (chunk) => {
           // 接受服务器响应
           httpParse.execute(chunk);
         });
+
+        tlsSocket.prependListener("close", ()=>{
+          console.log("===============tls close==============")
+        })
+
         tlsSocket.on("end", () => {
-          console.log("============socket end======");
+          console.log("============tls socket end======");
+          // httpParse.destroy();
+          // httpParse.execute(Buffer.concat(datas));
           tlsSocket.destroy();
         });
+
+        // 发送请求
         tlsSocket.write(reqMessage);
       } else {
         // http直接显式代理

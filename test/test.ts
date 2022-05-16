@@ -2,7 +2,7 @@ import MgHTTP from "../src/MgHTTP";
 import * as https from "https";
 
 const http = new MgHTTP({
-  host: "https://www.footlocker.com/",
+  host: "https://www.w3schools.com/",
   proxy: {
     host: "40.121.158.227",
     port: 8085,
@@ -11,11 +11,24 @@ const http = new MgHTTP({
   },
 });
 
-http.request("/", {
+// http.request("/", {
+//   method:"GET"
+// }).catch(e =>{
+//   console.log(e);
+// })
+
+// http.request("https://stackoverflow.com/questions/49335192/java-http-socket-end-of-stream", {
+//   method:"GET"
+// }).catch(e =>{
+//   console.log(e);
+// })
+
+http.request("https://www.baidu.com", {
   method:"GET"
 }).catch(e =>{
   console.log(e);
 })
+
 
 
 // const req = https.request({
