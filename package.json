@@ -1,6 +1,6 @@
 {
   "name": "mghttp",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "A HTTP/1.1 client",
   "main": "dist/index.js",
   "files":["dist"],
@@ -14,12 +14,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/drinkjs/ngulf.git"
+    "url": "git+https://github.com/drinkjs/mghttp.git"
   },
   "bugs": {
-    "url": "https://github.com/drinkjs/ngulf/issues"
+    "url": "https://github.com/drinkjs/mghttp/issues"
   },
-  "homepage": "https://github.com/drinkjs/ngulf#readme",
+  "homepage": "https://github.com/drinkjs/mghttp#readme",
   "keywords": ["http", "http client", "node http"],
   "author": "",
   "license": "MIT",
