@@ -407,13 +407,13 @@ export default class MgHTTP {
 
     let body: string | undefined;
     if (json) {
-      headers["content-type"] = "application/json; charset=utf-8";
+      headers["content-type"] = "application/json";
       body = JSON.stringify(json);
     }
 
     if (form) {
       headers["content-type"] =
-        "application/x-www-form-urlencoded; charset=utf-8";
+        "application/x-www-form-urlencoded";
       body = new URLSearchParams(form).toString();
     }
 
