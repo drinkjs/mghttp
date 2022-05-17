@@ -1,13 +1,13 @@
+/* eslint-disable @typescript-eslint/no-this-alias */
 /* eslint-disable no-undef */
 import * as assert from "assert"
-import { readFileSync, writeFileSync } from "fs";
+import { readFileSync } from "fs";
 import { resolve } from "path";
 
 import * as constants from './llhttp/constants';
 const bin = readFileSync(resolve(__dirname, './llhttp/llhttp.wasm'));
 const mod = new WebAssembly.Module(bin);
 
-const EMPTY_BUF = Buffer.alloc(0)
 let currentParser = null
 let currentBufferRef = null
 let currentBufferSize = 0
@@ -76,9 +76,9 @@ export default class Parser {
   contentLength:string;
   bodyBuffs: Buffer[] = [];
 
-  onComplete:(statusCode:number, headers?:{[key:string]:string}, body?:Buffer)=>void
+  _onComplete:(statusCode:number, headers?:{[key:string]:string}, body?:Buffer)=>void | null = null;
 
-  constructor(onComplete:(statusCode:number, headers?:{[key:string]:string}, body?:Buffer)=>void) {
+  constructor() {
     this.llhttp = llhttpInstance.exports;
     this.ptr = this.llhttp.llhttp_alloc(constants.TYPE.RESPONSE)
     this.statusCode = null
@@ -87,7 +87,6 @@ export default class Parser {
     this.shouldKeepAlive = false
     this.keepAlive = ""
     this.contentLength = ""
-    this.onComplete = onComplete
   }
 
   execute(data:Buffer) {
@@ -138,11 +137,9 @@ export default class Parser {
 
   destroy() {
     assert(this.ptr != null)
-    assert(currentParser == null)
-
     this.llhttp.llhttp_free(this.ptr)
     this.ptr = null
-    currentParser = null
+    this._onComplete = null;
   }
 
   onStatus(buf: Buffer) {
@@ -197,6 +194,11 @@ export default class Parser {
     return 0;
   }
 
+  onComplete(callback:(statusCode:number, headers?:{[key:string]:string}, body?:Buffer)=>void){
+    this._onComplete = null;
+    this._onComplete = callback;
+  }
+
   onMessageComplete() {
     const headers = {}
     const n = this.headers.length;
@@ -210,7 +212,12 @@ export default class Parser {
         headers[key] = [].concat(oldValue, value);
       }
     }
-    this.onComplete(this.statusCode, headers, this.bodyBuffs.length ? Buffer.concat(this.bodyBuffs) : undefined);
+    // this.onComplete(this.statusCode, headers, this.bodyBuffs.length ? Buffer.concat(this.bodyBuffs) : undefined);
+    const callback = this._onComplete;
+    if(callback){
+      callback(this.statusCode, headers, this.bodyBuffs.length ? Buffer.concat(this.bodyBuffs) : undefined);
+      this._onComplete = null;
+    }
     return 0;
   }
 }

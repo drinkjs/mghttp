@@ -3,10 +3,8 @@ import * as http from "http";
 import * as https from "https";
 import * as tls from "tls";
 import { URL } from "url";
-import { Cookie, CookieJar } from "tough-cookie";
 import HTTPParser from "./HTTPParser";
 import { IncomingHttpHeaders } from "http";
-import { writeFileSync } from "fs";
 
 export type ProxyOpts = {
   host: string;
@@ -19,8 +17,9 @@ export type ProxyOpts = {
 export type MgHTTPOpts = {
   host?: string;
   proxy?: ProxyOpts;
-  cookieJar?: CookieJar;
 };
+
+export type HTTPHeaders = IncomingHttpHeaders & {[key:string]:string}
 
 export type HttpMethod =
   | "GET"
@@ -35,11 +34,7 @@ export type HttpMethod =
 
 export type RequestOpts = {
   method?: HttpMethod;
-  headers?:
-  | IncomingHttpHeaders
-  | {
-    [key: string]: any;
-  };
+  headers?:HTTPHeaders;
   searchParams?: {
     [key: string]: any;
   };
@@ -51,16 +46,10 @@ export type RequestOpts = {
   };
 };
 
-export type HttpResponse<T> = {
+export type HttpResponse = {
   statusCode: number;
-  body: string;
-  data?: T;
-  url: string;
-  headers:
-  | IncomingHttpHeaders
-  | {
-    [key: string]: any;
-  };
+  body?: Buffer;
+  headers?:HTTPHeaders;
 };
 
 export enum HttpError {
@@ -73,8 +62,6 @@ export enum HttpError {
 
 const sessionCache = new Map();
 const maxCachedSessions = 1000;
-const proxyConnects: Map<string, Socket> = new Map;
-const LAST_CHUNK = Buffer.from('0\r\n\r\n');
 
 export default class MgHTTP {
   private host?: string;
@@ -85,10 +72,10 @@ export default class MgHTTP {
 
   private proxyAuth?: string;
 
-  private _cookieJar?: CookieJar;
+  private proxyConnects: Map<string, { socket: Socket, parser: HTTPParser }> = new Map;
 
   constructor(opts?: MgHTTPOpts) {
-    const { host, proxy, cookieJar } = opts;
+    const { host, proxy } = opts;
     this.host = host;
     if (host) {
       this.hostObj = new URL(host);
@@ -96,19 +83,18 @@ export default class MgHTTP {
     if (proxy) {
       this.changeProxy(proxy);
     }
-    if (cookieJar) {
-      this._cookieJar = cookieJar;
-    } else {
-      this._cookieJar = new CookieJar();
-    }
-  }
-
-  get cookieJar() {
-    return this._cookieJar;
   }
 
   changeProxy(proxy: ProxyOpts) {
     this.proxy = proxy;
+
+    this.proxyConnects.forEach(value => {
+      value.parser.destroy();
+      value.socket.removeAllListeners();
+      value.socket.destroy();
+    });
+    this.proxyConnects.clear();
+
     if (proxy.username && proxy.password) {
       this.proxyAuth = Buffer.from(
         `${decodeURIComponent(proxy.username)}:${decodeURIComponent(
@@ -123,7 +109,11 @@ export default class MgHTTP {
     if (!socket.destroyed) {
       socket.destroy();
     }
-    proxyConnects.delete(servername);
+    const connectInfo = this.proxyConnects.get(servername);
+    if (connectInfo) {
+      connectInfo.parser.destroy()
+      this.proxyConnects.delete(servername);
+    }
   }
 
   /**
@@ -131,8 +121,8 @@ export default class MgHTTP {
    * @param opts 
    * @param callback 
    */
-  async createTLS(opts: { socket?: Socket, servername: string, serverport: number }) {
-    const { socket, servername, serverport } = opts;
+  async createTLS(opts: { socket?: Socket, servername: string, serverport: number, timeout?:number }) {
+    const { socket, servername, serverport, timeout } = opts;
     const sessionKey = servername;
     const session = sessionCache.get(sessionKey) || null;
 
@@ -145,10 +135,11 @@ export default class MgHTTP {
           session,
           servername,
           socket,
+          timeout,
         },
         () => {
           console.log(`${servername} tls ok`);
-          // tlsConn.removeAllListeners();
+          tlsConn.removeAllListeners();
           resolve(tlsConn)
         }
       );
@@ -167,7 +158,7 @@ export default class MgHTTP {
             // TODO (fix): Only delete for session related errors.
             sessionCache.delete(sessionKey);
           }
-          // this.handlerSocketClose(tlsConn, servername);
+          tlsConn.removeAllListeners();
           reject(err)
         });
     })
@@ -183,27 +174,15 @@ export default class MgHTTP {
     servername: string;
     serverport: number;
     isHttps: boolean;
-  }): Promise<Socket> {
+  }): Promise<{ socket: Socket, parser?: HTTPParser }> {
     const { proxy, servername, serverport, isHttps } = opts;
 
     return new Promise((resolve, reject) => {
-
-      const freeConnect = proxyConnects.get(servername);
-      if (freeConnect) {
-        proxyConnects.delete(servername)
-        if (isHttps) {
-          this.createTLS({
-            servername,
-            serverport,
-            socket: freeConnect
-          }).then(tlsSocket => {
-            resolve(tlsSocket)
-          }).catch(err => {
-            reject({code: HttpError.TLS_ERROR, message: err.message})
-          })
-        } else {
-          resolve(freeConnect)
-        }
+      const connectInfo = this.proxyConnects.get(servername);
+      if (connectInfo) {
+        this.proxyConnects.delete(servername);
+        connectInfo.socket.removeAllListeners();
+        resolve(connectInfo);
         return;
       }
 
@@ -226,16 +205,16 @@ export default class MgHTTP {
 
       proxyReq.once("connect", (response, socket) => {
         if (response.statusCode === 200) {
-          console.log("连接代理成功");
-
-          socket.setKeepAlive(true).once("close", () => {
-            console.log("socket close");
-            this.handlerSocketClose(socket, servername);
-          });
-
+          socket
+            .setKeepAlive(true)
+            .once("close", () => {
+              console.log("socket close");
+              this.handlerSocketClose(socket, servername);
+            });
+ 
           if (!isHttps) {
             // 不是https就不需要建立tls连接
-            resolve(socket);
+            resolve({ socket });
             return;
           }
 
@@ -244,9 +223,9 @@ export default class MgHTTP {
             servername,
             serverport
           }).then(tlsSocket => {
-            resolve(tlsSocket)
+            resolve({ socket: tlsSocket })
           }).catch(err => {
-            reject({code: HttpError.TLS_ERROR, message: err.message})
+            reject({ code: HttpError.TLS_ERROR, message: err.message })
           })
 
         } else {
@@ -284,37 +263,42 @@ export default class MgHTTP {
     host: string;
     port: number;
     path: string;
-    headers?: any;
+    headers?: HTTPHeaders;
     body?: any;
   }) {
     const { method, headers, body, path, host, port } = params;
-    const httpReq = http.request(
+    const req = http.request(
       {
         method,
         port,
         host,
         path,
         headers,
-      },
-      (res) => {
+      }
+    );
+
+    return new Promise((resolve, reject) => {
+      req.on("response", (res) => {
         const datas = [];
         res.on("data", (chunk) => {
           datas.push(chunk);
         });
         res.once("end", () => {
-          console.log(Buffer.concat(datas).toString());
+          req.removeAllListeners();
+          resolve({ statusCode: res.statusCode, headers: res.headers, body: Buffer.concat(datas) })
         });
+      })
+
+      req.once("error", (err) => {
+        req.removeAllListeners();
+        reject(err)
+      });
+
+      if (body) {
+        req.write(body);
       }
-    );
-
-    httpReq.on("error", (err) => {
-      console.log(err);
+      req.end();
     });
-
-    if (body) {
-      httpReq.write(body);
-    }
-    httpReq.end();
   }
 
   /**
@@ -326,11 +310,11 @@ export default class MgHTTP {
     host: string;
     port: number;
     path: string;
-    headers?: any;
+    headers?: HTTPHeaders;
     body?: any;
   }) {
     const { method, headers, body, path, host, port } = params;
-    const httpsReq = https.request(
+    const req = https.request(
       {
         method,
         port,
@@ -338,26 +322,30 @@ export default class MgHTTP {
         path,
         headers,
         servername: host,
-      },
-      (res) => {
+      }
+    );
+    return new Promise((resolve, reject) => {
+      req.on("response", (res) => {
         const datas = [];
         res.on("data", (chunk) => {
           datas.push(chunk);
         });
         res.once("end", () => {
-          console.log(Buffer.concat(datas).toString());
+          req.removeAllListeners();
+          resolve({ statusCode: res.statusCode, headers: res.headers, body: Buffer.concat(datas) })
         });
+      });
+
+      req.once("error", (err) => {
+        req.removeAllListeners();
+        reject(err)
+      });
+
+      if (body) {
+        req.write(body);
       }
-    );
-
-    httpsReq.on("error", (err) => {
-      console.log(err);
+      req.end();
     });
-
-    if (body) {
-      httpsReq.write(body);
-    }
-    httpsReq.end();
   }
 
   async request(url: string, opts: RequestOpts) {
@@ -395,92 +383,95 @@ export default class MgHTTP {
     }
 
     if (body) {
-      headers["content-length"] = Buffer.byteLength(body);
-    }
-
-    const cookies = this.cookieJar.getCookiesSync(urlObj.host);
-    if (cookies && cookies.length) {
-      headers["cookie"] = cookies.join("; ");
+      headers["content-length"] = Buffer.byteLength(body).toString();
     }
 
     const isHttps = urlObj.protocol === "https:";
-    console.log("===========================", urlObj)
 
-    if (this.proxy) {
-      if (isHttps) {
-        // https需要通过connect方法与服务器隧道进行通信
-        headers["Host"] = `${urlObj.host}:${serverport}`;
-        const tlsSocket = await this.createProxy({
-          proxy: this.proxy,
-          servername: urlObj.hostname,
-          serverport: Number(serverport),
-          isHttps: true,
-        });
+    return new Promise<HttpResponse>((resolve, reject) => {
+      if (this.proxy) {
+        if (isHttps) {
+          // https需要通过connect方法与服务器隧道进行通信
+          headers["Host"] = `${urlObj.host}:${serverport}`;
+          this.createProxy({
+            proxy: this.proxy,
+            servername: urlObj.hostname,
+            serverport: Number(serverport),
+            isHttps: true,
+          }).then(({ socket, parser }) => {
+            const tlsSocket = socket;
+            // 组装http内容 GET / HTTP/1.1
+            let reqMessage = `${method} ${urlObj.pathname || "/"}${searchText} HTTP/1.1\r\n`;
+            for (const key in headers) {
+              reqMessage += `${key}: ${headers[key]}\r\n`;
+            }
+            // header end
+            reqMessage += "\r\n";
+            if (body) {
+              reqMessage += body;
+            }
+            // 解释结果
+            const httpParse = parser || new HTTPParser();
+            httpParse.onComplete((statusCode: number, resHeaders: HTTPHeaders, resBody?: Buffer) => {
+              this.proxyConnects.set(urlObj.hostname, { socket, parser: httpParse });
+              resolve({ statusCode, headers: resHeaders, body: resBody });
+            });
+            tlsSocket.on("data", (chunk) => {
+              // 接受服务器响应
+              httpParse.execute(chunk);
+            });
 
-        // 组装http内容 GET / HTTP/1.1
-        let reqMessage = `${method} ${urlObj.pathname || "/"}${searchText} HTTP/1.1\r\n`;
-        for (const key in headers) {
-          reqMessage += `${key}: ${headers[key]}\r\n`;
+            tlsSocket.on("error", (err) => {
+              this.handlerSocketClose(tlsSocket, urlObj.hostname)
+              reject(err);
+            })
+
+            tlsSocket.on("end", () => {
+              this.handlerSocketClose(tlsSocket, urlObj.hostname)
+            });
+            // 发送请求
+            tlsSocket.write(reqMessage);
+          }).catch(err => {
+            console.log(err)
+            reject(err);
+          });
+
+        } else {
+          // http直接显式代理
+          if (this.proxyAuth) {
+            headers["proxy-authorization"] = `Basic ${this.proxyAuth}`;
+          }
+          this.httpReq({
+            method,
+            host: this.proxy.host,
+            port: this.proxy.port,
+            path: `http://${urlObj.hostname}:${serverport}${urlObj.pathname}${searchText}`,
+            body,
+            headers,
+          }).then(rel => {
+            console.log("proxy http:", rel);
+          })
         }
-        // header end
-        reqMessage += "\r\n";
-        if (body) {
-          reqMessage += body;
-        }
-        // 解释结果
-        const httpParse = new HTTPParser((statusCode:number, headers:any, resBody?:Buffer)=>{
-          console.log("==============onMessageComplete===============", headers)
-          if(resBody)
-            writeFileSync(`${Date.now()}.html`, resBody.toString());
-        });
-
-        tlsSocket.on("data", (chunk) => {
-          // 接受服务器响应
-          httpParse.execute(chunk);
-        });
-
-        tlsSocket.prependListener("close", ()=>{
-          console.log("===============tls close==============")
-        })
-
-        tlsSocket.on("end", () => {
-          console.log("============tls socket end======");
-          // httpParse.destroy();
-          // httpParse.execute(Buffer.concat(datas));
-          tlsSocket.destroy();
-        });
-
-        // 发送请求
-        tlsSocket.write(reqMessage);
       } else {
-        // http直接显式代理
-        if (this.proxyAuth) {
-          headers["proxy-authorization"] = `Basic ${this.proxyAuth}`;
-        }
-        await this.httpReq({
+        // 没有代理直接请求
+        const reqParams = {
           method,
-          host: this.proxy.host,
-          port: this.proxy.port,
-          path: `http://${urlObj.hostname}:${serverport}${urlObj.pathname}${searchText}`,
+          host: urlObj.host,
+          port: Number(serverport),
+          path: `${urlObj.pathname}${searchText}`,
           body,
           headers,
-        });
+        }
+        if (isHttps) {
+          this.httsReq(reqParams).then(rel => {
+            console.log("httsReq:", rel);
+          })
+        } else {
+          this.httpReq(reqParams).then(rel => {
+            console.log("httpReq:", rel);
+          });
+        }
       }
-    } else {
-      // 没有代理直接请求
-      const reqParams = {
-        method,
-        host: urlObj.host,
-        port: Number(serverport),
-        path: `${urlObj.pathname}${searchText}`,
-        body,
-        headers,
-      }
-      if (isHttps) {
-        await this.httsReq(reqParams)
-      } else {
-        await this.httpReq(reqParams);
-      }
-    }
+    })
   }
 }

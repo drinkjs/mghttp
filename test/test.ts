@@ -1,5 +1,5 @@
-import MgHTTP from "../src/MgHTTP";
-import * as https from "https";
+import MgHTTP from "../src";
+import { writeFileSync } from "fs";
 
 const http = new MgHTTP({
   host: "https://www.w3schools.com/",
@@ -23,21 +23,41 @@ const http = new MgHTTP({
 //   console.log(e);
 // })
 
-http.request("https://www.baidu.com", {
-  method:"GET"
-}).catch(e =>{
-  console.log(e);
-})
 
 
 
-// const req = https.request({
-//   host:"www.baidu.com",
-//   port: 443,
-//   path: '/',
-//   method: 'GET'
-// }, ()=>{
-//   console.log("成功")
-// })
+async function test() {
 
-// req.end()
+  const rel1 = await http.request("https://www.baidu.com", {
+    method: "GET"
+  })
+
+  if (rel1.body)
+    writeFileSync(`${Date.now()}.html`, rel1.body.toString());
+
+  const rel2 = await http.request("https://www.baidu.com", {
+    method: "GET"
+  });
+
+  if (rel2.body)
+    writeFileSync(`${Date.now()}.html`, rel2.body.toString());
+
+
+  http.request("https://stackoverflow.com/questions/49335192/java-http-socket-end-of-stream", {
+    method: "GET"
+  }).then(rel3 => {
+    if (rel3.body)
+      writeFileSync(`${Date.now()}.html`, rel3.body.toString());
+  }).catch(err =>{
+    console.log(err)
+  })
+
+  http.request("/", {
+    method: "GET"
+  }).then(rel4 => {
+    if (rel4.body)
+      writeFileSync(`${Date.now()}.html`, rel4.body.toString());
+  })
+}
+
+test()
