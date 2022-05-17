@@ -57,7 +57,7 @@ async function test() {
   }).then(rel4 => {
     if (rel4.body)
       writeFileSync(`${Date.now()}.html`, rel4.body.toString());
-  })
+  });
 }
 
 test()

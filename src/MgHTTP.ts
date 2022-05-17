@@ -49,7 +49,8 @@ export type RequestOpts = {
 export type HttpResponse = {
   statusCode: number;
   body?: Buffer;
-  headers?:HTTPHeaders;
+  headers:HTTPHeaders;
+  host:string
 };
 
 export enum HttpError {
@@ -74,6 +75,8 @@ export default class MgHTTP {
 
   private proxyConnects: Map<string, { socket: Socket, parser: HTTPParser }> = new Map;
 
+  destroyed = false;
+  
   constructor(opts?: MgHTTPOpts) {
     const { host, proxy } = opts;
     this.host = host;
@@ -85,16 +88,24 @@ export default class MgHTTP {
     }
   }
 
-  changeProxy(proxy: ProxyOpts) {
-    this.proxy = proxy;
-
+  destroy(){
+    this.destroyed = true;
     this.proxyConnects.forEach(value => {
       value.parser.destroy();
       value.socket.removeAllListeners();
       value.socket.destroy();
     });
     this.proxyConnects.clear();
+  }
 
+  reuse(){
+    this.destroyed = false;
+  }
+
+  changeProxy(proxy: ProxyOpts) {
+    this.destroy();
+    this.destroyed = false;
+    this.proxy = proxy;
     if (proxy.username && proxy.password) {
       this.proxyAuth = Buffer.from(
         `${decodeURIComponent(proxy.username)}:${decodeURIComponent(
@@ -104,7 +115,7 @@ export default class MgHTTP {
     }
   }
 
-  handlerSocketClose(socket: Socket, servername: string) {
+  private handlerSocketClose(socket: Socket, servername: string) {
     socket.removeAllListeners();
     if (!socket.destroyed) {
       socket.destroy();
@@ -121,7 +132,12 @@ export default class MgHTTP {
    * @param opts 
    * @param callback 
    */
-  async createTLS(opts: { socket?: Socket, servername: string, serverport: number, timeout?:number }) {
+   private async createTLS(opts: { socket?: Socket, servername: string, serverport: number, timeout?:number }) {
+
+    if(this.destroyed){
+      throw new Error("连接已销毁")
+    }
+
     const { socket, servername, serverport, timeout } = opts;
     const sessionKey = servername;
     const session = sessionCache.get(sessionKey) || null;
@@ -138,6 +154,9 @@ export default class MgHTTP {
           timeout,
         },
         () => {
+          if(this.destroyed){
+            throw new Error("连接已销毁")
+          }
           console.log(`${servername} tls ok`);
           tlsConn.removeAllListeners();
           resolve(tlsConn)
@@ -169,14 +188,17 @@ export default class MgHTTP {
    * @param opts 
    * @returns 
    */
-  async createProxy(opts: {
+   private async createProxy(opts: {
     proxy: ProxyOpts;
     servername: string;
     serverport: number;
     isHttps: boolean;
   }): Promise<{ socket: Socket, parser?: HTTPParser }> {
-    const { proxy, servername, serverport, isHttps } = opts;
+    if(this.destroyed){
+      throw new Error("连接已销毁")
+    }
 
+    const { proxy, servername, serverport, isHttps } = opts;
     return new Promise((resolve, reject) => {
       const connectInfo = this.proxyConnects.get(servername);
       if (connectInfo) {
@@ -195,7 +217,7 @@ export default class MgHTTP {
         path: `${servername}:${serverport}`,
         setHost: false,
         headers: {
-          // connection: "keep-alive",
+          connection: "keep-alive",
           host: `${servername}:${serverport}`,
           "proxy-authorization": this.proxyAuth
             ? `Basic ${this.proxyAuth}`
@@ -205,6 +227,9 @@ export default class MgHTTP {
 
       proxyReq.once("connect", (response, socket) => {
         if (response.statusCode === 200) {
+          if(this.destroyed){
+            throw new Error("连接已销毁")
+          }
           socket
             .setKeepAlive(true)
             .once("close", () => {
@@ -258,7 +283,7 @@ export default class MgHTTP {
    * 发起http请求
    * @param params 
    */
-  async httpReq(params: {
+   private async httpReq(params: {
     method: HttpMethod;
     host: string;
     port: number;
@@ -285,7 +310,10 @@ export default class MgHTTP {
         });
         res.once("end", () => {
           req.removeAllListeners();
-          resolve({ statusCode: res.statusCode, headers: res.headers, body: Buffer.concat(datas) })
+          if(this.destroyed){
+            throw new Error("连接已销毁")
+          }
+          resolve({ host, statusCode: res.statusCode, headers: res.headers, body: datas.length ? Buffer.concat(datas) : undefined })
         });
       })
 
@@ -305,7 +333,7 @@ export default class MgHTTP {
    * 发起https请求
    * @param params 
    */
-  async httsReq(params: {
+   private async httsReq(params: {
     method: HttpMethod;
     host: string;
     port: number;
@@ -332,7 +360,10 @@ export default class MgHTTP {
         });
         res.once("end", () => {
           req.removeAllListeners();
-          resolve({ statusCode: res.statusCode, headers: res.headers, body: Buffer.concat(datas) })
+          if(this.destroyed){
+            throw new Error("连接已销毁")
+          }
+          resolve({ host, statusCode: res.statusCode, headers: res.headers, body: datas.length ? Buffer.concat(datas) : undefined })
         });
       });
 
@@ -349,6 +380,10 @@ export default class MgHTTP {
   }
 
   async request(url: string, opts: RequestOpts) {
+    if(this.destroyed){
+      throw new Error("连接已销毁")
+    }
+
     const { method = "GET", searchParams, json, form, headers = {} } = opts;
 
     let urlObj: URL | undefined = this.hostObj;
@@ -413,10 +448,14 @@ export default class MgHTTP {
             // 解释结果
             const httpParse = parser || new HTTPParser();
             httpParse.onComplete((statusCode: number, resHeaders: HTTPHeaders, resBody?: Buffer) => {
+              tlsSocket.removeAllListeners();
               this.proxyConnects.set(urlObj.hostname, { socket, parser: httpParse });
-              resolve({ statusCode, headers: resHeaders, body: resBody });
+              resolve({ host:urlObj.host, statusCode, headers: resHeaders, body: resBody });
             });
             tlsSocket.on("data", (chunk) => {
+              if(this.destroyed){
+                throw new Error("连接已销毁")
+              }
               // 接受服务器响应
               httpParse.execute(chunk);
             });
@@ -424,10 +463,16 @@ export default class MgHTTP {
             tlsSocket.on("error", (err) => {
               this.handlerSocketClose(tlsSocket, urlObj.hostname)
               reject(err);
+            });
+
+            tlsSocket.on("close", () => {
+              this.handlerSocketClose(tlsSocket, urlObj.hostname);
+              reject(new Error("tls socket close"))
             })
 
             tlsSocket.on("end", () => {
-              this.handlerSocketClose(tlsSocket, urlObj.hostname)
+              this.handlerSocketClose(tlsSocket, urlObj.hostname);
+              reject(new Error("tls socket end"))
             });
             // 发送请求
             tlsSocket.write(reqMessage);

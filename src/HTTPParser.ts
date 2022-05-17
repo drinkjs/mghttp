@@ -62,7 +62,7 @@ const llhttpInstance = new WebAssembly.Instance(mod, {
   }
 })
 
-export default class Parser {
+export default class HTTPParser {
 
   llhttp: any
   ptr: any
@@ -124,6 +124,9 @@ export default class Parser {
     }
 
     if (ret !== constants.ERROR.OK) {
+      this.bodyBuffs = [];
+      this.headers = [];
+
       const ptr = llhttp.llhttp_get_error_reason(this.ptr)
       let message = ''
       /* istanbul ignore else: difficult to make a test case for */
@@ -136,7 +139,6 @@ export default class Parser {
   }
 
   destroy() {
-    assert(this.ptr != null)
     this.llhttp.llhttp_free(this.ptr)
     this.ptr = null
     this._onComplete = null;
@@ -195,6 +197,8 @@ export default class Parser {
   }
 
   onComplete(callback:(statusCode:number, headers?:{[key:string]:string}, body?:Buffer)=>void){
+    this.bodyBuffs = [];
+    this.headers = [];
     this._onComplete = null;
     this._onComplete = callback;
   }
@@ -203,7 +207,7 @@ export default class Parser {
     const headers = {}
     const n = this.headers.length;
     for(let i=0; i<n; i+=2){
-      const key = this.headers[i].toString();
+      const key = this.headers[i].toString().toLowerCase();
       const value = this.headers[i+1].toString();
       if(!headers[key]){
         headers[key] = value;
@@ -216,6 +220,8 @@ export default class Parser {
     const callback = this._onComplete;
     if(callback){
       callback(this.statusCode, headers, this.bodyBuffs.length ? Buffer.concat(this.bodyBuffs) : undefined);
+      this.bodyBuffs = [];
+      this.headers = [];
       this._onComplete = null;
     }
     return 0;
