@@ -35,7 +35,7 @@ async function test() {
   if (rel1.body)
     writeFileSync(`${Date.now()}.html`, rel1.body.toString());
 
-  const rel2 = await http.request("https://www.baidu.com", {
+  const rel2 = await http.request("http://www.drinkjs.com", {
     method: "GET"
   });
 

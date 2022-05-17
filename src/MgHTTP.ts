@@ -19,7 +19,7 @@ export type MgHTTPOpts = {
   proxy?: ProxyOpts;
 };
 
-export type HTTPHeaders = IncomingHttpHeaders & {[key:string]:string}
+export type HTTPHeaders = IncomingHttpHeaders | {[key:string]:string}
 
 export type HttpMethod =
   | "GET"
@@ -277,7 +277,7 @@ export default class MgHTTP {
       }
     );
 
-    return new Promise((resolve, reject) => {
+    return new Promise<HttpResponse>((resolve, reject) => {
       req.on("response", (res) => {
         const datas = [];
         res.on("data", (chunk) => {
@@ -324,7 +324,7 @@ export default class MgHTTP {
         servername: host,
       }
     );
-    return new Promise((resolve, reject) => {
+    return new Promise<HttpResponse>((resolve, reject) => {
       req.on("response", (res) => {
         const datas = [];
         res.on("data", (chunk) => {
@@ -448,9 +448,7 @@ export default class MgHTTP {
             path: `http://${urlObj.hostname}:${serverport}${urlObj.pathname}${searchText}`,
             body,
             headers,
-          }).then(rel => {
-            console.log("proxy http:", rel);
-          })
+          }).then(resolve).catch(err => reject(err))
         }
       } else {
         // 没有代理直接请求
@@ -463,13 +461,9 @@ export default class MgHTTP {
           headers,
         }
         if (isHttps) {
-          this.httsReq(reqParams).then(rel => {
-            console.log("httsReq:", rel);
-          })
+          this.httsReq(reqParams).then(resolve).catch((err)=>reject(err))
         } else {
-          this.httpReq(reqParams).then(rel => {
-            console.log("httpReq:", rel);
-          });
+          this.httpReq(reqParams).then(resolve).catch((err)=>reject(err))
         }
       }
     })
