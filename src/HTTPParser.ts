@@ -85,7 +85,7 @@ export default class HTTPParser {
     this.ptr = this.llhttp.llhttp_alloc(constants.TYPE.RESPONSE)
   }
 
-  private reset(){
+  reset(){
     this.headers = [];
     this.bodyBuffs = [];
     this.statusCode = 0
@@ -95,6 +95,7 @@ export default class HTTPParser {
     this.keepAlive = ""
     this.contentLength = ""
     this.headersSize = 0;
+    this._onComplete = undefined;
   }
 
   execute(data:Buffer) {

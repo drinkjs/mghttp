@@ -1,4 +1,5 @@
-import { Socket } from "net";
+import  { Socket } from "net";
+import * as net from "net"
 import * as http from "http";
 import * as https from "https";
 import * as tls from "tls";
@@ -133,40 +134,44 @@ export default class MgHTTP {
 
     return new Promise<tls.TLSSocket>((resolve, reject) => {
       // 建立tls连接
-      const tlsConn = tls.connect(
-        {
-          host: servername,
-          port: serverport,
-          session,
-          servername,
-          socket,
-          timeout,
-        },
-        () => {
-          tlsConn.removeAllListeners();
-          resolve(tlsConn)
-        }
-      );
-      tlsConn
-        .setNoDelay(true)
-        .on("session", function (session) {
-          if (sessionCache.size >= maxCachedSessions) {
-            // remove the oldest session
-            const { value: oldestKey } = sessionCache.keys().next();
-            sessionCache.delete(oldestKey);
+      try{
+        const tlsConn = tls.connect(
+          {
+            host: servername,
+            port: serverport,
+            session,
+            servername,
+            socket,
+            timeout,
+          },
+          () => {
+            tlsConn.removeAllListeners();
+            resolve(tlsConn)
           }
-          sessionCache.set(sessionKey, session);
-        })
-        .once("close", ()=>{
-          reject(new SocketError(`${servername}:${serverport} tls close`))
-        })
-        .once("error", (err: Error) => {
-          tlsConn.removeAllListeners();
-          if (sessionKey) {
-            sessionCache.delete(sessionKey);
-          }
-          reject(err);
-        });
+        );
+        tlsConn
+          .setNoDelay(true)
+          .on("session", (session)=> {
+            if (sessionCache.size >= maxCachedSessions) {
+              // remove the oldest session
+              const { value: oldestKey } = sessionCache.keys().next();
+              sessionCache.delete(oldestKey);
+            }
+            sessionCache.set(sessionKey, session);
+          })
+          .once("close", ()=>{
+            reject(new SocketError(`${servername}:${serverport} tls close`))
+          })
+          .once("error", (err: Error) => {
+            tlsConn.removeAllListeners();
+            if (sessionKey) {
+              sessionCache.delete(sessionKey);
+            }
+            reject(err);
+          });
+      }catch(e){
+        reject(e);
+      }
     })
   }
 
@@ -215,7 +220,10 @@ export default class MgHTTP {
             .setKeepAlive(true)
             .once("close", () => {
               this.handlerSocketClose(socket, servername);
-            });
+            })
+            .once("error", ()=>{
+              this.handlerSocketClose(socket, servername);
+            })
  
           if (!isHttps) {
             // 不是https就不需要建立tls连接
@@ -437,6 +445,7 @@ export default class MgHTTP {
             if (body) {
               reqMessage += body;
             }
+
             // 解释结果
             const httpParse = parser || new HTTPParser();
             httpParse.onComplete((statusCode: number, resHeaders: HTTPHeaders, resBody?: Buffer) => {
@@ -444,25 +453,41 @@ export default class MgHTTP {
               if(this.destroyed){
                 return;
               }
-              this.proxyConnects.set(urlObj!.hostname, { socket, parser: httpParse });
+              this.proxyConnects.set(urlObj!.hostname, { socket: tlsSocket, parser: httpParse });
               resolve({ statusCode, headers: resHeaders, body: resBody });
             });
+
+            // 超时
+            let timeouter:any = setTimeout(()=>{
+              tlsSocket.removeAllListeners();
+              httpParse.reset();
+              this.proxyConnects.set(urlObj!.hostname, { socket: tlsSocket, parser: httpParse });
+              reject(new ConnectTimeoutError("Request timeout"));
+            }, timeout || 10*1000)
+
             tlsSocket.on("data", (chunk) => {
               // 接受服务器响应
+              if(timeouter){
+                clearTimeout(timeouter);
+                timeouter = null;
+              }
               httpParse.execute(chunk);
             });
 
             tlsSocket.on("error", (err) => {
+              clearTimeout(timeouter);
               this.handlerSocketClose(tlsSocket, urlObj!.hostname);
               reject(err);
             });
 
             tlsSocket.on("close", () => {
+              clearTimeout(timeouter);
               this.handlerSocketClose(tlsSocket, urlObj!.hostname);
               reject(new SocketError("The tls close"))
             })
 
             tlsSocket.on("end", () => {
+              clearTimeout(timeouter);
               this.handlerSocketClose(tlsSocket, urlObj!.hostname);
               reject(new SocketError("The tls end"))
             });
