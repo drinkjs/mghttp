@@ -1,6 +1,6 @@
 {
   "name": "mghttp",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "A HTTP/1.1 client",
   "main": "dist/index.js",
   "files":["dist"],
@@ -8,7 +8,7 @@
     "node": ">=14.0.0"
   },
   "scripts": {
-    "test": "ts-node test/test.ts",
+    "test": "npm run build && ts-node test/test.ts",
     "build": "node scripts/build.js",
     "release": "npm run build && npm publish"
   },

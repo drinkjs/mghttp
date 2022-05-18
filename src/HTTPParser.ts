@@ -3,57 +3,59 @@
 import * as assert from "assert"
 import { readFileSync } from "fs";
 import { resolve } from "path";
+import { HTTPParserError } from "./errors";
 
 import * as constants from './llhttp/constants';
+import { HTTPHeaders } from "./MgHTTP";
 const bin = readFileSync(resolve(__dirname, './llhttp/llhttp.wasm'));
 const mod = new WebAssembly.Module(bin);
 
-let currentParser = null
-let currentBufferRef = null
+let currentParser:any = null;
+let currentBufferRef:any = null
 let currentBufferSize = 0
-let currentBufferPtr = null
+let currentBufferPtr:any = null
 
 const llhttpInstance = new WebAssembly.Instance(mod, {
   env: {
     /* eslint-disable camelcase */
 
-    wasm_on_url: (p, at, len) => {
+    wasm_on_url: (p:any, at:number, len:number) => {
       /* istanbul ignore next */
       return 0
     },
-    wasm_on_status: (p, at, len) => {
+    wasm_on_status: (p:any, at:number, len:number) => {
       assert.strictEqual(currentParser.ptr, p)
       const start = at - currentBufferPtr
       const end = start + len
       return currentParser.onStatus(currentBufferRef.slice(start, end)) || 0
     },
-    wasm_on_message_begin: (p) => {
+    wasm_on_message_begin: (p:any) => {
       assert.strictEqual(currentParser.ptr, p)
       return currentParser.onMessageBegin() || 0
     },
-    wasm_on_header_field: (p, at, len) => {
+    wasm_on_header_field: (p:any, at:number, len:number) => {
       assert.strictEqual(currentParser.ptr, p)
       const start = at - currentBufferPtr
       const end = start + len
       return currentParser.onHeaderField(currentBufferRef.slice(start, end)) || 0
     },
-    wasm_on_header_value: (p, at, len) => {
+    wasm_on_header_value: (p:any, at:number, len:number) => {
       assert.strictEqual(currentParser.ptr, p)
       const start = at - currentBufferPtr
       const end = start + len
       return currentParser.onHeaderValue(currentBufferRef.slice(start, end)) || 0
     },
-    wasm_on_headers_complete: (p, statusCode, upgrade, shouldKeepAlive) => {
+    wasm_on_headers_complete: (p:any, statusCode:number, upgrade:any, shouldKeepAlive:any) => {
       assert.strictEqual(currentParser.ptr, p)
       return currentParser.onHeadersComplete(statusCode, Boolean(upgrade), Boolean(shouldKeepAlive)) || 0
     },
-    wasm_on_body: (p, at, len) => {
+    wasm_on_body: (p:any, at:number, len:number) => {
       assert.strictEqual(currentParser.ptr, p)
       const start = at - currentBufferPtr
       const end = start + len
       return currentParser.onBody(currentBufferRef.slice(start, end)) || 0
     },
-    wasm_on_message_complete: (p) => {
+    wasm_on_message_complete: (p:any) => {
       assert.strictEqual(currentParser.ptr, p)
       return currentParser.onMessageComplete() || 0
     }
@@ -66,27 +68,33 @@ export default class HTTPParser {
 
   llhttp: any
   ptr: any
-  statusCode: number
-  statusText: string
-  upgrade: boolean
+  statusCode = 0
+  statusText = ""
+  upgrade = false;
   headers:Buffer[] = [];
-  headersSize: number;
-  shouldKeepAlive: boolean;
-  keepAlive:string
-  contentLength:string;
+  headersSize = 0;
+  shouldKeepAlive = false;
+  keepAlive = ""
+  contentLength = "";
   bodyBuffs: Buffer[] = [];
 
-  _onComplete:(statusCode:number, headers?:{[key:string]:string}, body?:Buffer)=>void | null = null;
+  _onComplete?:(statusCode:number, headers:HTTPHeaders, body?:Buffer)=>void;
 
   constructor() {
     this.llhttp = llhttpInstance.exports;
     this.ptr = this.llhttp.llhttp_alloc(constants.TYPE.RESPONSE)
-    this.statusCode = null
+  }
+
+  private reset(){
+    this.headers = [];
+    this.bodyBuffs = [];
+    this.statusCode = 0
     this.statusText = ''
     this.upgrade = false
     this.shouldKeepAlive = false
     this.keepAlive = ""
     this.contentLength = ""
+    this.headersSize = 0;
   }
 
   execute(data:Buffer) {
@@ -134,14 +142,14 @@ export default class HTTPParser {
         const len = new Uint8Array(llhttp.memory.buffer, ptr).indexOf(0)
         message = Buffer.from(llhttp.memory.buffer, ptr, len).toString()
       }
-      throw new Error(message)
+      throw new HTTPParserError(message)
     }
   }
 
   destroy() {
     this.llhttp.llhttp_free(this.ptr)
     this.ptr = null
-    this._onComplete = null;
+    this._onComplete = undefined;
   }
 
   onStatus(buf: Buffer) {
@@ -196,33 +204,31 @@ export default class HTTPParser {
     return 0;
   }
 
-  onComplete(callback:(statusCode:number, headers?:{[key:string]:string}, body?:Buffer)=>void){
-    this.bodyBuffs = [];
-    this.headers = [];
-    this._onComplete = null;
+  onComplete(callback:(statusCode:number, headers:HTTPHeaders, body?:Buffer)=>void){
+    this.reset();
     this._onComplete = callback;
   }
 
   onMessageComplete() {
-    const headers = {}
+    const headers:any = {}
     const n = this.headers.length;
     for(let i=0; i<n; i+=2){
       const key = this.headers[i].toString().toLowerCase();
       const value = this.headers[i+1].toString();
-      if(!headers[key]){
+      const oldValue = headers[key];
+      if(!oldValue){
         headers[key] = value;
       }else{
-        const oldValue = headers[key];
-        headers[key] = [].concat(oldValue, value);
+        if (!Array.isArray(oldValue)) {
+          headers[key] = [oldValue]
+        }
+        headers[key].push(value)
       }
     }
-    // this.onComplete(this.statusCode, headers, this.bodyBuffs.length ? Buffer.concat(this.bodyBuffs) : undefined);
     const callback = this._onComplete;
     if(callback){
       callback(this.statusCode, headers, this.bodyBuffs.length ? Buffer.concat(this.bodyBuffs) : undefined);
-      this.bodyBuffs = [];
-      this.headers = [];
-      this._onComplete = null;
+      this.reset();
     }
     return 0;
   }

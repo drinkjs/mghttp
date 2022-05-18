@@ -1,5 +1,4 @@
-import MgHTTP from "../src";
-import { writeFileSync } from "fs";
+import MgHTTP from "../dist";
 
 const http = new MgHTTP({
   host: "https://www.w3schools.com/",
@@ -11,53 +10,10 @@ const http = new MgHTTP({
   },
 });
 
-// http.request("/", {
-//   method:"GET"
-// }).catch(e =>{
-//   console.log(e);
-// })
-
-// http.request("https://stackoverflow.com/questions/49335192/java-http-socket-end-of-stream", {
-//   method:"GET"
-// }).catch(e =>{
-//   console.log(e);
-// })
+http.request("/", {
+  method:"GET"
+}).then(res =>{
+  console.log(res);
+})
 
 
-
-
-async function test() {
-
-  const rel1 = await http.request("https://www.baidu.com", {
-    method: "GET"
-  })
-
-  if (rel1.body)
-    writeFileSync(`${Date.now()}.html`, rel1.body.toString());
-
-  const rel2 = await http.request("http://www.drinkjs.com", {
-    method: "GET"
-  });
-
-  if (rel2.body)
-    writeFileSync(`${Date.now()}.html`, rel2.body.toString());
-
-
-  http.request("https://stackoverflow.com/questions/49335192/java-http-socket-end-of-stream", {
-    method: "GET"
-  }).then(rel3 => {
-    if (rel3.body)
-      writeFileSync(`${Date.now()}.html`, rel3.body.toString());
-  }).catch(err =>{
-    console.log(err)
-  })
-
-  http.request("/", {
-    method: "GET"
-  }).then(rel4 => {
-    if (rel4.body)
-      writeFileSync(`${Date.now()}.html`, rel4.body.toString());
-  });
-}
-
-test()
