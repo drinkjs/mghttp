@@ -99,8 +99,7 @@ export default class HTTPParser {
   }
 
   execute(data:Buffer) {
-    assert(this.ptr != null)
-    assert(currentParser == null)
+    if(!this.ptr) return -1;
 
     const { llhttp } = this
 
@@ -159,7 +158,7 @@ export default class HTTPParser {
   }
 
   onMessageBegin() {
-    //
+    if(!this.ptr) return -1;
     return 0;
   }
 

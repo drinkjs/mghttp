@@ -1,5 +1,4 @@
 import  { Socket } from "net";
-import * as net from "net"
 import * as http from "http";
 import * as https from "https";
 import * as tls from "tls";
@@ -56,7 +55,7 @@ export type HttpResponse = {
 };
 
 const sessionCache = new Map();
-const maxCachedSessions = 1000;
+const maxCachedSessions = 100;
 
 export default class MgHTTP {
   private host?: string;
@@ -146,9 +145,10 @@ export default class MgHTTP {
           },
           () => {
             tlsConn.removeAllListeners();
-            resolve(tlsConn)
+            resolve(tlsConn);
           }
         );
+
         tlsConn
           .setNoDelay(true)
           .on("session", (session)=> {
@@ -160,6 +160,7 @@ export default class MgHTTP {
             sessionCache.set(sessionKey, session);
           })
           .once("close", ()=>{
+            tlsConn.removeAllListeners();
             reject(new SocketError(`${servername}:${serverport} tls close`))
           })
           .once("error", (err: Error) => {
@@ -198,6 +199,13 @@ export default class MgHTTP {
       }
 
       // 连接代理
+      const headers:any = {
+        connection: "keep-alive",
+        host: `${servername}:${serverport}`,
+      }
+      if(this.proxyAuth){
+        headers["proxy-authorization"] = `Basic ${this.proxyAuth}`
+      }
       const proxyReq = http.request({
         method: "CONNECT",
         port: proxy.port || 80,
@@ -205,13 +213,7 @@ export default class MgHTTP {
         timeout: proxy.timeout || 5000,
         path: `${servername}:${serverport}`,
         setHost: false,
-        headers: {
-          connection: "keep-alive",
-          host: `${servername}:${serverport}`,
-          "proxy-authorization": this.proxyAuth
-            ? `Basic ${this.proxyAuth}`
-            : undefined,
-        },
+        headers,
       });
 
       proxyReq.once("connect", (response, socket) => {
@@ -338,10 +340,11 @@ export default class MgHTTP {
         method,
         port,
         host,
+        hostname:host,
         path,
         headers,
-        servername: host,
-        timeout
+        // servername: host,
+        timeout,
       }
     );
     return new Promise<HttpResponse>((resolve, reject) => {
@@ -432,7 +435,8 @@ export default class MgHTTP {
             isHttps: true,
           }).then(({ socket, parser }) => {
             if(this.destroyed){
-              throw new ClientDestroyedError()
+              reject(new ClientDestroyedError());
+              return;
             }
             const tlsSocket = socket;
             // 组装http内容 GET / HTTP/1.1
@@ -453,7 +457,8 @@ export default class MgHTTP {
               if(this.destroyed){
                 return;
               }
-              this.proxyConnects.set(urlObj!.hostname, { socket: tlsSocket, parser: httpParse });
+              // this.proxyConnects.set(urlObj!.hostname, { socket: tlsSocket, parser: httpParse });
+              tlsSocket.destroy();
               resolve({ statusCode, headers: resHeaders, body: resBody });
             });
 
