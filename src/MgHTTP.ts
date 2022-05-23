@@ -281,6 +281,9 @@ export default class MgHTTP {
   }) {
 
     const { method, headers, body, path, host, port, timeout } = params;
+
+    console.log("===============================", host);
+
     const req = http.request(
       {
         method,
@@ -427,7 +430,7 @@ export default class MgHTTP {
       if (this.proxy) {
         if (isHttps) {
           // https需要通过connect方法与服务器隧道进行通信
-          headers["Host"] = `${urlObj!.host}:${serverport}`;
+          headers["Host"] = `${urlObj!.hostname}:${serverport}`;
           this.createProxy({
             proxy: this.proxy,
             servername: urlObj!.hostname,
@@ -526,7 +529,7 @@ export default class MgHTTP {
         // 没有代理直接请求
         const reqParams = {
           method,
-          host: urlObj!.host,
+          host: urlObj!.hostname,
           port: Number(serverport),
           path: `${urlObj!.pathname}${searchText}`,
           body,
