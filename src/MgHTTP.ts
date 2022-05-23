@@ -200,7 +200,7 @@ export default class MgHTTP {
 
       // 连接代理
       const headers:any = {
-        connection: "keep-alive",
+        "Proxy-Connection": "keep-alive",
         host: `${servername}:${serverport}`,
       }
       if(this.proxyAuth){
