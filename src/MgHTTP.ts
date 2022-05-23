@@ -281,9 +281,6 @@ export default class MgHTTP {
   }) {
 
     const { method, headers, body, path, host, port, timeout } = params;
-
-    console.log("===============================", host);
-
     const req = http.request(
       {
         method,
@@ -484,12 +481,14 @@ export default class MgHTTP {
 
             tlsSocket.on("error", (err) => {
               clearTimeout(timeouter);
+              httpParse.destroy();
               this.handlerSocketClose(tlsSocket, urlObj!.hostname);
               reject(err);
             });
 
             tlsSocket.on("close", () => {
               clearTimeout(timeouter);
+              httpParse.destroy();
               this.handlerSocketClose(tlsSocket, urlObj!.hostname);
               reject(new SocketError("The tls close"))
             })
