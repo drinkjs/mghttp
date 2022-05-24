@@ -494,7 +494,7 @@ export default class MgHTTP {
             // 发送请求
             tlsSocket.write(reqMessage);
           }).catch(err => {
-            reject(err.message)
+            reject("createProxy error")
           });
 
         } else {
