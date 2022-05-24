@@ -141,6 +141,7 @@ export default class HTTPParser {
       if (ptr) {
         const len = new Uint8Array(llhttp.memory.buffer, ptr).indexOf(0)
         message = Buffer.from(llhttp.memory.buffer, ptr, len).toString()
+        this.destroy();
       }
       throw new HTTPParserError(message)
     }

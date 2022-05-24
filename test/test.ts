@@ -11,14 +11,16 @@ const http = new MgHTTP({
   },
 });
 
-http.request("/api/products/pdp/314215396004", {
-  method:"GET",
-  searchParams:{
-    timestamp:"1652936541429"
-  },
-}).then(res =>{
-  console.log(res);
-})
+setInterval(()=>{
+  http.request("/api/products/pdp/314215396004", {
+    method:"GET",
+    searchParams:{
+      timestamp:"1652936541429"
+    },
+  }).then(res =>{
+    console.log(res);
+  })
+}, 100)
 
 
 // const client = http2.connect('https://www.footlocker.es', {

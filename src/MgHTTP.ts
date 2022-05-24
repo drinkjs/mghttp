@@ -5,7 +5,6 @@ import * as tls from "tls";
 import { URL } from "url";
 import HTTPParser from "./HTTPParser";
 import { IncomingHttpHeaders } from "http";
-import { ClientDestroyedError, ConnectTimeoutError, ProxyError, SocketError } from "./errors";
 
 export type ProxyOpts = {
   host: string;
@@ -161,17 +160,17 @@ export default class MgHTTP {
           })
           .once("close", ()=>{
             tlsConn.removeAllListeners();
-            reject(new SocketError(`${servername}:${serverport} tls close`))
+            reject(`${servername}:${serverport} tls close`)
           })
-          .once("error", (err: Error) => {
+          .once("error", () => {
             tlsConn.removeAllListeners();
             if (sessionKey) {
               sessionCache.delete(sessionKey);
             }
-            reject(err);
+            reject(`${servername}:${serverport} tls error`);
           });
       }catch(e){
-        reject(e);
+        reject(`${servername}:${serverport} tls error`);
       }
     })
   }
@@ -244,22 +243,16 @@ export default class MgHTTP {
           })
 
         } else {
-          proxyReq.removeAllListeners();
-          proxyReq.destroy();
-          reject(new ProxyError(`${proxy.host}:${proxy.port||80} connect fail; statusCode:${response.statusCode} `))
+          reject(`${proxy.host}:${proxy.port||80} connect fail StatusCode:${response.statusCode}`)
         }
       });
 
       proxyReq.once("error", (err) => {
-        proxyReq.removeAllListeners();
-        proxyReq.destroy();
-        reject(err)
+        reject(`${proxy.host}:${proxy.port||80} connect error`)
       });
 
       proxyReq.once("timeout", () => {
-        proxyReq.removeAllListeners();
-        proxyReq.destroy();
-        reject(new ProxyError(`${proxy.host}:${proxy.port||80} connect timeout`))
+        reject(`${proxy.host}:${proxy.port||80} connect timeout..`)
       });
       // 发送请求
       proxyReq.end();
@@ -311,7 +304,7 @@ export default class MgHTTP {
 
       req.once("timeout", ()=>{
         req.removeAllListeners();
-        reject(new ConnectTimeoutError)
+        reject(`${path} request timeout`)
       })
 
       if (body) {
@@ -366,7 +359,7 @@ export default class MgHTTP {
 
       req.once("timeout", ()=>{
         req.removeAllListeners();
-        reject(new ConnectTimeoutError)
+        reject(`${path} request timeout`)
       })
 
       if (body) {
@@ -420,7 +413,7 @@ export default class MgHTTP {
 
     return new Promise<HttpResponse>((resolve, reject) => {
       if(this.destroyed){
-        reject(new ClientDestroyedError());
+        reject("The client is destroyed");
         return;
       }
 
@@ -434,8 +427,9 @@ export default class MgHTTP {
             serverport: Number(serverport),
             isHttps: true,
           }).then(({ socket, parser }) => {
+            // 创建tls代理成功
             if(this.destroyed){
-              reject(new ClientDestroyedError());
+              reject("The client is destroyed");
               return;
             }
             const tlsSocket = socket;
@@ -457,19 +451,18 @@ export default class MgHTTP {
               if(this.destroyed){
                 return;
               }
-              // this.proxyConnects.set(urlObj!.hostname, { socket: tlsSocket, parser: httpParse });
-              tlsSocket.destroy();
+              this.proxyConnects.set(urlObj!.hostname, { socket: tlsSocket, parser: httpParse });
               resolve({ statusCode, headers: resHeaders, body: resBody });
             });
 
             // 超时
             let timeouter:any = setTimeout(()=>{
-              tlsSocket.removeAllListeners();
               httpParse.reset();
               this.proxyConnects.set(urlObj!.hostname, { socket: tlsSocket, parser: httpParse });
-              reject(new ConnectTimeoutError("Request timeout"));
+              reject("Request timeout");
             }, timeout || 10*1000)
 
+            tlsSocket.removeAllListeners();
             tlsSocket.on("data", (chunk) => {
               // 接受服务器响应
               if(timeouter){
@@ -479,29 +472,29 @@ export default class MgHTTP {
               httpParse.execute(chunk);
             });
 
-            tlsSocket.on("error", (err) => {
+            tlsSocket.once("error", (err) => {
               clearTimeout(timeouter);
               httpParse.destroy();
               this.handlerSocketClose(tlsSocket, urlObj!.hostname);
-              reject(err);
+              reject("The tls error");
             });
 
-            tlsSocket.on("close", () => {
+            tlsSocket.once("close", () => {
               clearTimeout(timeouter);
               httpParse.destroy();
               this.handlerSocketClose(tlsSocket, urlObj!.hostname);
-              reject(new SocketError("The tls close"))
+              reject("The tls close");
             })
 
             tlsSocket.on("end", () => {
               clearTimeout(timeouter);
               this.handlerSocketClose(tlsSocket, urlObj!.hostname);
-              reject(new SocketError("The tls end"))
+              reject("The tls end");
             });
             // 发送请求
             tlsSocket.write(reqMessage);
           }).catch(err => {
-            reject(err)
+            reject(err.message)
           });
 
         } else {

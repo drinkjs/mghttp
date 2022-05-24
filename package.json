@@ -1,9 +1,11 @@
 {
   "name": "mghttp",
-  "version": "1.2.0",
+  "version": "1.2.2",
   "description": "A HTTP/1.1 client",
   "main": "dist/index.js",
-  "files":["dist"],
+  "files": [
+    "dist"
+  ],
   "engines": {
     "node": ">=14.0.0"
   },
@@ -20,7 +22,11 @@
     "url": "https://github.com/drinkjs/mghttp/issues"
   },
   "homepage": "https://github.com/drinkjs/mghttp#readme",
-  "keywords": ["http", "http client", "node http"],
+  "keywords": [
+    "http",
+    "http client",
+    "node http"
+  ],
   "author": "",
   "license": "MIT",
   "dependencies": {},
