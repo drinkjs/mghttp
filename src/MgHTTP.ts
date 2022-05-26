@@ -114,7 +114,9 @@ export default class MgHTTP {
     }
     const connectInfo = this.proxyConnects.get(servername);
     if (connectInfo) {
-      connectInfo.parser.destroy()
+      connectInfo.socket.removeAllListeners();
+      connectInfo.socket.destroy();
+      connectInfo.parser.destroy();
       this.proxyConnects.delete(servername);
     }
   }
@@ -216,6 +218,7 @@ export default class MgHTTP {
       });
 
       proxyReq.once("connect", (response, socket) => {
+
         if (response.statusCode === 200) {
           socket
             .setKeepAlive(true)
@@ -248,7 +251,7 @@ export default class MgHTTP {
       });
 
       proxyReq.once("error", (err) => {
-        reject(`${proxy.host}:${proxy.port||80} connect error`)
+        reject(`${proxy.host}:${proxy.port||80} connect error: ${err.message}`)
       });
 
       proxyReq.once("timeout", () => {
@@ -444,17 +447,7 @@ export default class MgHTTP {
               reqMessage += body;
             }
 
-            // 解释结果
             const httpParse = parser || new HTTPParser();
-            httpParse.onComplete((statusCode: number, resHeaders: HTTPHeaders, resBody?: Buffer) => {
-              tlsSocket.removeAllListeners();
-              if(this.destroyed){
-                return;
-              }
-              this.proxyConnects.set(urlObj!.hostname, { socket: tlsSocket, parser: httpParse });
-              resolve({ statusCode, headers: resHeaders, body: resBody });
-            });
-
             // 超时
             let timeouter:any = setTimeout(()=>{
               httpParse.reset();
@@ -462,39 +455,50 @@ export default class MgHTTP {
               reject("Request timeout");
             }, timeout || 10*1000)
 
-            tlsSocket.removeAllListeners();
-            tlsSocket.on("data", (chunk) => {
+            // 解释结果
+            const parseData = (chunk:Buffer)=>{
               // 接受服务器响应
               if(timeouter){
                 clearTimeout(timeouter);
-                timeouter = null;
+                timeouter = undefined;
               }
               httpParse.execute(chunk);
+            }
+            // 解释完成
+            httpParse.onComplete((statusCode: number, resHeaders: HTTPHeaders, resBody?: Buffer) => {
+              tlsSocket.removeListener("data", parseData);
+              if(this.destroyed){
+                return;
+              }
+              this.proxyConnects.set(urlObj!.hostname, { socket: tlsSocket, parser: httpParse });
+              resolve({ statusCode, headers: resHeaders, body: resBody });
             });
 
-            tlsSocket.once("error", (err) => {
+            tlsSocket.removeAllListeners();
+            tlsSocket
+            .on("data", parseData)
+            .once("error", (err) => {
               clearTimeout(timeouter);
-              httpParse.destroy();
+              timeouter = undefined;
+              let parser:any = httpParse;
+              parser.destroy();
+              parser = null;
               this.handlerSocketClose(tlsSocket, urlObj!.hostname);
-              reject("The tls error");
-            });
-
-            tlsSocket.once("close", () => {
+              reject(`The tls error: ${err.message}`);
+            })
+            .once("close", () => {
               clearTimeout(timeouter);
-              httpParse.destroy();
+              let parser:any = httpParse;
+              timeouter = undefined;
+              parser.destroy();
+              parser = null;
               this.handlerSocketClose(tlsSocket, urlObj!.hostname);
               reject("The tls close");
-            })
-
-            tlsSocket.on("end", () => {
-              clearTimeout(timeouter);
-              this.handlerSocketClose(tlsSocket, urlObj!.hostname);
-              reject("The tls end");
             });
             // 发送请求
             tlsSocket.write(reqMessage);
           }).catch(err => {
-            reject("createProxy error")
+            reject(err)
           });
 
         } else {

@@ -98,6 +98,10 @@ export default class HTTPParser {
     this._onComplete = undefined;
   }
 
+  resume () {
+    this.llhttp.llhttp_resume(this.ptr)
+  }
+
   execute(data:Buffer) {
     if(!this.ptr) return -1;
 
@@ -231,6 +235,6 @@ export default class HTTPParser {
       callback(this.statusCode, headers, this.bodyBuffs.length ? Buffer.concat(this.bodyBuffs) : undefined);
       this.reset();
     }
-    return 0;
+    this.resume();
   }
 }

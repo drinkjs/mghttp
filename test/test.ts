@@ -1,26 +1,29 @@
 import MgHTTP from "../dist";
-import * as http2 from "http2"
+
+
 
 const http = new MgHTTP({
-  host: "https://www.footlocker.es",
+  host: "https://www.facebook.com",
   proxy: {
     host: "127.0.0.1",
     port: 7890,
-    // username: "33ac01c666a1dbff2400995ecc7afe5d",
-    // password: "46e530c42a5f1322d03c3ea1d101e60f",
+    // username: "468501fac5779b9b64643a88b953fe61",
+    // password: "064645c4fc3b2f0bec15e8c591a2930f",
   },
 });
 
 setInterval(()=>{
-  http.request("/api/products/pdp/314215396004", {
+  http.request("/", {
     method:"GET",
-    searchParams:{
-      timestamp:"1652936541429"
+    headers:{
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/101.0.4951.67 Safari/537.36"
     },
   }).then(res =>{
     console.log(res);
+  }).catch(e=>{
+    console.log(e);
   })
-}, 100)
+}, 1000)
 
 
 // const client = http2.connect('https://www.footlocker.es', {
