@@ -1,6 +1,6 @@
 {
   "name": "mghttp",
-  "version": "1.2.4",
+  "version": "1.2.5",
   "description": "A HTTP/1.1 client",
   "main": "dist/index.js",
   "files": [

@@ -35,15 +35,11 @@ export type HttpMethod =
 export type RequestOpts = {
   method?: HttpMethod;
   headers?:HTTPHeaders;
-  searchParams?: {
-    [key: string]: any;
-  };
+  searchParams?: string | string[][] | Record<string, string> | URLSearchParams;
   json?: {
     [key: string]: any;
   };
-  form?: {
-    [key: string]: any;
-  };
+  form?: string | string[][] | Record<string, string> | URLSearchParams;
   timeout?:number
 };
 

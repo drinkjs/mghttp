@@ -12,18 +12,20 @@ const http = new MgHTTP({
   },
 });
 
-setInterval(()=>{
-  http.request("/", {
-    method:"GET",
-    headers:{
-      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/101.0.4951.67 Safari/537.36"
-    },
-  }).then(res =>{
-    console.log(res);
-  }).catch(e=>{
-    console.log(e);
-  })
-}, 1000)
+// setInterval(()=>{
+//   http.request("/", {
+//     method:"GET",
+//     headers:{
+//       "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/101.0.4951.67 Safari/537.36"
+//     },
+//   }).then(res =>{
+//     console.log(res);
+//   }).catch(e=>{
+//     console.log(e);
+//   })
+// }, 1000)
+
+console.log(new URLSearchParams([["facetsToRetrieve[]", "browseVerticals"],["propsToRetrieve[][]", "brand"]]).toString())
 
 
 // const client = http2.connect('https://www.footlocker.es', {
