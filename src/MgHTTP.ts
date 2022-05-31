@@ -375,16 +375,16 @@ export default class MgHTTP {
     if (/^http[s]*?:/.test(url)) {
       urlObj = new URL(url);
     } else if (urlObj) {
-      urlObj.pathname = url;
+      urlObj = new URL(this.host + url);
     }
 
     if(!urlObj){
       throw new Error("NonlicetURL:" + url);
     }
 
-    let searchText = "";
+    let searchText = urlObj.search;
     if (searchParams) {
-      searchText = "?" + new URLSearchParams(searchParams).toString();
+      searchText += (searchText ? "&" : "?") + new URLSearchParams(searchParams).toString();
     }
 
     let serverport = urlObj.port;
