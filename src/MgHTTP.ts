@@ -17,6 +17,7 @@ export type ProxyOpts = {
 export type MgHTTPOpts = {
   host?: string;
   proxy?: ProxyOpts;
+  checkServerIdentity?:(host: string, cert: tls.PeerCertificate)=>Error | undefined
 };
 
 export type HTTPHeaders = IncomingHttpHeaders | {[key:string]:string}
@@ -35,12 +36,12 @@ export type HttpMethod =
 export type RequestOpts = {
   method?: HttpMethod;
   headers?:HTTPHeaders;
-  searchParams?: string | string[][] | Record<string, string> | URLSearchParams;
+  searchParams?: string | string[][] | Record<string, string> | URLSearchParams | {[key: string]: any};
   json?: {
     [key: string]: any;
   };
-  form?: string | string[][] | Record<string, string> | URLSearchParams;
-  timeout?:number
+  form?: string | string[][] | Record<string, string> | URLSearchParams | {[key: string]: any};
+  timeout?:number,
 };
 
 export type HttpResponse = {
@@ -63,9 +64,12 @@ export default class MgHTTP {
 
   private proxyConnects: Map<string, { socket: Socket, parser: HTTPParser }> = new Map;
 
+  private opts?:MgHTTPOpts
+
   destroyed = false;
   
   constructor(opts?: MgHTTPOpts) {
+    this.opts = opts;
     const { host, proxy } = opts || {};
     this.host = host;
     if (host) {
@@ -139,6 +143,7 @@ export default class MgHTTP {
             servername,
             socket,
             timeout,
+            checkServerIdentity: this.opts?.checkServerIdentity
           },
           () => {
             tlsConn.removeAllListeners();
@@ -327,9 +332,8 @@ export default class MgHTTP {
     timeout?:number
   }) {
     const { method, headers, body, path, host, port, timeout } = params;
-    const req = https.request(
-      {
-        method,
+    const options:any = {
+      method,
         port,
         host,
         hostname:host,
@@ -337,8 +341,11 @@ export default class MgHTTP {
         headers,
         // servername: host,
         timeout,
-      }
-    );
+    }
+    if(this.opts?.checkServerIdentity){
+      options.checkServerIdentity = this.opts?.checkServerIdentity;
+    }
+    const req = https.request(options);
     return new Promise<HttpResponse>((resolve, reject) => {
       req.on("response", (res) => {
         const datas:Buffer[] = [];
