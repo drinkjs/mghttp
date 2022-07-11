@@ -1,6 +1,6 @@
 {
   "name": "mghttp",
-  "version": "1.2.8",
+  "version": "1.2.9",
   "description": "A HTTP/1.1 client",
   "main": "dist/index.js",
   "files": [
@@ -31,6 +31,7 @@
   "license": "MIT",
   "devDependencies": {
     "@types/node": "^14.14.10",
+    "@types/uuid": "^8.3.4",
     "@typescript-eslint/eslint-plugin": "^5.23.0",
     "@typescript-eslint/parser": "^5.23.0",
     "eslint": "^8.15.0",
